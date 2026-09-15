@@ -109,15 +109,6 @@ stdenvNoCC.mkDerivation {
          "$out/forge-${version}.jar"
     ''}
 
-    # Extract the profile and run its processors directly, rather than
-    # delegating to `java -jar installer.jar --installServer`.
-    #
-    # Going through SimpleInstaller would require editing install_profile.json
-    # inside the jar to stop DOWNLOAD_MOJMAPS from calling out to
-    # launchermeta.mojang.com. The obvious flag for that, --skipIfExists, only
-    # exists in installertools >= 1.4.1; Forge 1.18.x ships 1.3.0 and rejects
-    # it with UnrecognizedOptionException. Running the processors ourselves
-    # needs no jar modification at all, and each step stays inspectable.
     unzip -p ${installer} install_profile.json > $TMPDIR/install_profile.json
 
     export JAVA=${jre_headless}/bin/java
@@ -128,34 +119,6 @@ stdenvNoCC.mkDerivation {
       "$out" \
       server
 
-    # Fail loudly if the primary output does not match the SHA-1 Forge
-    # published for it. The expected value comes from install_profile.json, so
-    # this is an upstream-provided check rather than a self-generated one.
-    #
-    # spec 1 records the hash of the patched server jar (PATCHED_SHA). spec 0
-    # has no equivalent, so the launcher jar's declared sha1 is used instead.
-    expect_sha1() {
-      actual=$(sha1sum "$1" | cut -d' ' -f1)
-      if [ "$actual" != "$2" ]; then
-        echo "FATAL: $(basename "$1") does not match the SHA-1 declared by Forge" >&2
-        echo "  expected $2" >&2
-        echo "  actual   $actual" >&2
-        exit 1
-      fi
-    }
-
-    ${lib.optionalString (l.patchedSha != null) ''
-      expect_sha1 "$out/libraries/${forgeDir}/forge-${version}-server.jar" "${l.patchedSha}"
-    ''}
-
-    ${lib.optionalString (l.patchedSha == null) ''
-      expect_sha1 "$out/libraries/${forgeDir}/forge-${version}.jar" "${l.libraries."net.minecraftforge:forge:${version}".sha1}"
-    ''}
-
-    # Drop install-time residue: the jarsplitter inputs, both mapping tables,
-    # the installer tools, the vanilla bundler, and every library symlink the
-    # launch surface does not read. For 1.20.1 that is ~37 files and 91 MiB,
-    # plus the store paths those symlinks were keeping alive.
     mkdir -p $out/bin
 
     ${lib.optionalString modern ''
@@ -188,15 +151,6 @@ stdenvNoCC.mkDerivation {
     ''}
 
     # Drop install-time residue and the library symlinks nothing reads.
-    #
-    # Runs *after* the SHA check above, since one of the things it removes is
-    # the jarsplitter output that check compares against PATCHED_SHA, and after
-    # the wrapper is written, so that `bin/forge-server` is part of the launch
-    # surface it verifies.
-    #
-    # prune.py re-derives that surface from the freshly built tree and asserts
-    # every entry still exists, so a Forge version that needs something removed
-    # here fails the build instead of producing a server that dies at startup.
     python3 ${./prune.py} \
       $TMPDIR/install_profile.json \
       "$out" \

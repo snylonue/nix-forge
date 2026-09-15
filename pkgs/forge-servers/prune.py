@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 """Remove install-time residue from a Forge server tree.
 
-Forge's installers write a lot that is only needed *during* installation: the
-jarsplitter inputs, both mapping tables, the installer tools themselves, the
-bundler jar the vanilla server ships as. Once the build is done these are dead
-weight -- for 1.20.1 they are ~40 MiB of a 92 MiB output, plus 36 store paths
-(guava 25.1, installertools, jarsplitter, three srgutils, asm 9.2/9.6, ...)
-dragged into the closure by library symlinks nothing reads.
-
 Usage:
     prune.py <install_profile.json> <out> <side> <generation>
 
@@ -26,18 +19,11 @@ version rather than by inspection:
   * `MinecraftLocator` discovers `srg.jar`, `fmlcore`, the language
     providers, and `forge-<v>-server.jar`/`-universal.jar` by maven
     convention under the library directory. None of them appear in
-    unix_args.txt. Deleting `srg.jar` gives `NoClassDefFoundError:
-    net/minecraft/core/RegistryAccess`; deleting `forge-<v>-server.jar`
-    fails later, inside `ItemStack`.
-
-  * `MANIFEST.MF` wraps long values across continuation lines (a leading
-    space means "append to previous line"). Parsing without honouring that
-    yields truncated, nonexistent entries and a bogus classpath.
+    unix_args.txt.
 
 Pruning therefore ends with an assertion that every path on the launch
 surface still exists. If a future Forge build needs something this script
-removes, the build fails loudly instead of producing a server that dies at
-startup.
+removes, the build will fail.
 """
 
 import glob
