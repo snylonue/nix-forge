@@ -7,8 +7,8 @@ produce a server without any network access at build time:
   - every library jar plus the vanilla server jar, with Maven-layout paths
   - the Mojang server mappings (spec 1 installers), pre-placed where the
     DOWNLOAD_MOJMAPS processor would otherwise write them
-  - Forge's own published SHA-1 of the final patched jar, so the build can
-    verify its output against upstream rather than trusting itself
+  - Forge's own published SHA-1s of the intermediate and final jars, recorded
+    for reference
 
 Forge's installer format changed repeatedly over the years. Two shapes are
 handled, distinguished by the profile contents rather than by version number:
