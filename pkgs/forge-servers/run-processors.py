@@ -40,6 +40,20 @@ MAVEN_RE = re.compile(r"^([^:]+):([^:]+):([^@:]+)(?::([^@:]+))?(?:@(.+))?$")
 # installertools' CLI surface.
 SKIP_TASKS = {"DOWNLOAD_MOJMAPS"}
 
+# Extra flags that have to be injected for an otherwise non-reproducible
+# processor.
+#
+# SpecialSource (used by the 1.16.5 generation to produce the srg jar) creates
+# its `JarEntry` objects without a timestamp, so they default to the system clock
+# at build time. When set `SpecialSource.stable`, `JarRemapper`
+# calls `entry.setTime(0)` instead.
+#
+# Keyed by the processor's main class rather than by maven coordinate so it
+# cannot silently apply to a different tool.
+EXTRA_ARGS = {
+    "net.md_5.specialsource.SpecialSource": ["--stable"],
+}
+
 
 def maven_path(coordinate: str, artifact: dict | None = None) -> str:
     if artifact and artifact.get("path"):
@@ -177,6 +191,7 @@ def main():
                 raise SystemExit(f"processor {i}: missing classpath entry {path}")
 
         name = main_class(Path(classpath[0]))
+        args += EXTRA_ARGS.get(name, [])
         print(f"[{i}] {task or name}: {name}")
         result = subprocess.run(
             [JAVA, "-cp", ":".join(classpath), name, *args],
