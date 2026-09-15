@@ -152,6 +152,10 @@ stdenvNoCC.mkDerivation {
       expect_sha1 "$out/libraries/${forgeDir}/forge-${version}.jar" "${l.libraries."net.minecraftforge:forge:${version}".sha1}"
     ''}
 
+    # Drop install-time residue: the jarsplitter inputs, both mapping tables,
+    # the installer tools, the vanilla bundler, and every library symlink the
+    # launch surface does not read. For 1.20.1 that is ~37 files and 91 MiB,
+    # plus the store paths those symlinks were keeping alive.
     mkdir -p $out/bin
 
     ${lib.optionalString modern ''
@@ -182,6 +186,23 @@ stdenvNoCC.mkDerivation {
         --add-flags "-jar" \
         --add-flags "$rootJar"
     ''}
+
+    # Drop install-time residue and the library symlinks nothing reads.
+    #
+    # Runs *after* the SHA check above, since one of the things it removes is
+    # the jarsplitter output that check compares against PATCHED_SHA, and after
+    # the wrapper is written, so that `bin/forge-server` is part of the launch
+    # surface it verifies.
+    #
+    # prune.py re-derives that surface from the freshly built tree and asserts
+    # every entry still exists, so a Forge version that needs something removed
+    # here fails the build instead of producing a server that dies at startup.
+    python3 ${./prune.py} \
+      $TMPDIR/install_profile.json \
+      "$out" \
+      server \
+      ${if modern then "spec1" else "spec0"}
+
   '';
 
   passthru = {
