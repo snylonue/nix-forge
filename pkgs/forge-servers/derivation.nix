@@ -132,8 +132,11 @@ stdenvNoCC.mkDerivation {
         --replace-fail "-DlibraryDirectory=libraries" "-DlibraryDirectory=$out/libraries" \
         --replace-fail "libraries/" "$out/libraries/"
 
+      # Flags are appended rather than added so that the caller's arguments
+      # land *before* the @argfile: `java <user args> @unix_args.txt nogui`.
       makeWrapper ${runtimeJava}/bin/java $out/bin/forge-server \
-        --add-flags "@$args"
+        --append-flags "@$args" \
+        --append-flags "nogui"
     ''}
 
     ${lib.optionalString (!modern) ''
@@ -146,8 +149,9 @@ stdenvNoCC.mkDerivation {
       fi
 
       makeWrapper ${runtimeJava}/bin/java $out/bin/forge-server \
-        --add-flags "-jar" \
-        --add-flags "$rootJar"
+        --append-flags "-jar" \
+        --append-flags "$rootJar" \
+        --append-flags "nogui"
     ''}
 
     # Drop install-time residue and the library symlinks nothing reads.

@@ -72,6 +72,9 @@ flags keyed by main class, so it cannot apply to the wrong tool.
   the blanket rewrite misses it, and the server dies with `Missing
   libraryDirectory system property, cannot continue`. `derivation.nix` has the
   exact `substituteInPlace`.
+- **The wrapper must append, not add, its flags.** `unix_args.txt` ends with
+  Forge's program arguments, so the wrapper is built as
+  `java "$@" @unix_args.txt nogui` using `--append-flags`.
 - **spec 0 needs the root launcher jar copied out**, because running processors
   directly bypasses `ServerInstall`. Its manifest `Class-Path` resolves relative
   to the jar, which is what lets the server start from any data directory.
