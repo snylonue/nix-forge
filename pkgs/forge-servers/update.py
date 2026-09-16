@@ -23,6 +23,7 @@ would require.
 Usage:
     ./update.py 1.20.1 47.4.20      # one lock, written to locks/
     ./update.py                     # refresh every lock in locks/
+    ./update.py -r 1.13..1.20.1     # both promoted builds of every version in range
 
 Network access is required. Proxy environment variables (http_proxy /
 https_proxy) are honoured when set.
@@ -42,6 +43,7 @@ from pathlib import Path
 FORGE_MAVEN = "https://maven.minecraftforge.net"
 MOJANG_MAVEN = "https://libraries.minecraft.net"
 VERSION_MANIFEST = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
+PROMOTIONS = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
 
 
 def log(*args):
@@ -98,6 +100,25 @@ def nix_hash(url: str) -> str:
         encoding="UTF-8",
         env=env,
     ).stdout.strip()
+
+
+def version_key(version: str) -> tuple:
+    """Order Minecraft versions numerically
+    """
+    return tuple(int(part) if part.isdigit() else 0 for part in version.split("."))
+
+
+def promoted_builds(low: str, high: str) -> dict:
+    """The promoted Forge builds of every Minecraft version in [low, high].
+    """
+    promos = fetch_json(PROMOTIONS)["promos"]
+    lo, hi = version_key(low), version_key(high)
+    out = {}
+    for key, forge in promos.items():
+        m = re.match(r"^([0-9.]+)-(recommended|latest)$", key)
+        if m and lo <= version_key(m.group(1)) <= hi:
+            out.setdefault(m.group(1), set()).add(forge)
+    return {mc: sorted(forges, key=version_key) for mc, forges in out.items()}
 
 
 def maven_path(coordinate: str, artifact: dict | None = None) -> str:
@@ -277,9 +298,32 @@ def main():
     )
     ap.add_argument("forge", nargs="?", help="Forge build, e.g. 47.4.20")
     ap.add_argument("-o", "--output", help="output path (default: locks/forge-<mc>-<forge>.json)")
+    ap.add_argument(
+        "-r",
+        "--promoted",
+        metavar="LOW..HIGH",
+        help="lock every promoted build (recommended and latest) of each "
+        "Minecraft version in the range, e.g. 1.13..1.20.1",
+    )
     args = ap.parse_args()
 
     lockdir = Path(__file__).parent / "locks"
+
+    if args.promoted:
+        low, _, high = args.promoted.partition("..")
+        if not high:
+            ap.error("range must look like LOW..HIGH, e.g. 1.13..1.20.1")
+        wanted = promoted_builds(low, high)
+        if not wanted:
+            raise SystemExit(f"no promoted builds in {args.promoted}")
+        for mc, forges in sorted(wanted.items(), key=lambda kv: version_key(kv[0])):
+            for forge in forges:
+                log(f"==> {mc}-{forge}")
+                lock = build_lock(mc, forge)
+                path = lockdir / f"forge-{mc}-{forge}.json"
+                path.write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n")
+                log(f"    {lock['generation']}, {len(lock['libraries'])} libraries")
+        return
 
     if args.version is None:
         # Refresh in place. Each lock name encodes its versions, so existing

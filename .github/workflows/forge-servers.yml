@@ -1,0 +1,110 @@
+name: forge-servers
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Build every locked version, not just the refreshed ones"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NIX_CONFIG: |
+    experimental-features = nix-command flakes
+    system-features = nixos-test benchmark big-parallel
+
+jobs:
+  select:
+    name: Select packages
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      attrs: ${{ steps.select.outputs.attrs }}
+      sha: ${{ steps.select.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixpkgs-unstable
+
+      - name: Regenerate locks
+        run: nix run .#update-forge -- --promoted 1.13..1.20.1
+
+      - name: Commit
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          file_pattern: pkgs/forge-servers/locks
+          commit_message: "forge-servers: refresh locks"
+
+      - name: Select packages
+        id: select
+        env:
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+
+          nix eval --json .#legacyPackages.x86_64-linux --apply \
+            'p: builtins.filter (n: builtins.match "forge-[0-9_]+" n != null) (builtins.attrNames p)' \
+            > "$RUNNER_TEMP/full.json"
+          git diff --name-only "$GITHUB_SHA" HEAD -- pkgs/forge-servers/locks \
+            > "$RUNNER_TEMP/changed.txt"
+
+          force=()
+          if [ "$FORCE" = "true" ]; then
+            force=(--force)
+          fi
+          python3 .github/scripts/select-packages.py \
+            --full "$RUNNER_TEMP/full.json" \
+            --changed "$RUNNER_TEMP/changed.txt" \
+            "${force[@]}" \
+            --output "$GITHUB_OUTPUT"
+
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.attr }}
+    needs: select
+    if: ${{ needs.select.outputs.attrs != '[]' }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        attr: ${{ fromJSON(needs.select.outputs.attrs) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.select.outputs.sha }}
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixpkgs-unstable
+
+      - name: Build
+        id: build
+        env:
+          ATTR: ${{ matrix.attr }}
+        run: |
+          set -euo pipefail
+          out=$(nix build --no-link --print-out-paths ".#legacyPackages.x86_64-linux.$ATTR")
+          echo "path=$out" >> "$GITHUB_OUTPUT"
+          du -sh "$out"
+
+      - name: Summary
+        env:
+          ATTR: ${{ matrix.attr }}
+          PATH_OUT: ${{ steps.build.outputs.path }}
+        run: |
+          {
+            echo "### $ATTR"
+            echo
+            echo '```'
+            echo "$PATH_OUT"
+            du -sh "$PATH_OUT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
