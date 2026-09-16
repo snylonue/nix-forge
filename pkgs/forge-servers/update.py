@@ -21,8 +21,8 @@ rejected rather than half-supported; see resolve_legacy_url for what adding it
 would require.
 
 Usage:
-    ./update.py 1.20.1 47.4.20      # one lock, written to locks/
-    ./update.py                     # refresh every lock in locks/
+    ./update.py 1.20.1 47.4.20      # one lock, written to the lock directory
+    ./update.py                     # refresh every lock in the lock directory
     ./update.py -r 1.13..1.20.1     # both promoted builds of every version in range
 
 Network access is required. Proxy environment variables (http_proxy /
@@ -297,7 +297,7 @@ def main():
         help="Minecraft version, e.g. 1.20.1 (omit to refresh every existing lock)",
     )
     ap.add_argument("forge", nargs="?", help="Forge build, e.g. 47.4.20")
-    ap.add_argument("-o", "--output", help="output path (default: locks/forge-<mc>-<forge>.json)")
+    ap.add_argument("-o", "--output", help="output path (default: <lockdir>/forge-<mc>-<forge>.json)")
     ap.add_argument(
         "-r",
         "--promoted",
@@ -305,9 +305,16 @@ def main():
         help="lock every promoted build (recommended and latest) of each "
         "Minecraft version in the range, e.g. 1.13..1.20.1",
     )
+    ap.add_argument(
+        "-d",
+        "--lockdir",
+        default="pkgs/forge-servers/locks",
+        help="directory the locks live in, relative to the current directory "
+        "(default: pkgs/forge-servers/locks)",
+    )
     args = ap.parse_args()
 
-    lockdir = Path(__file__).parent / "locks"
+    lockdir = Path(args.lockdir)
 
     if args.promoted:
         low, _, high = args.promoted.partition("..")
@@ -321,6 +328,7 @@ def main():
                 log(f"==> {mc}-{forge}")
                 lock = build_lock(mc, forge)
                 path = lockdir / f"forge-{mc}-{forge}.json"
+                path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n")
                 log(f"    {lock['generation']}, {len(lock['libraries'])} libraries")
         return
@@ -328,6 +336,8 @@ def main():
     if args.version is None:
         # Refresh in place. Each lock name encodes its versions, so existing
         # locks are the source of truth for what to regenerate.
+        if not lockdir.is_dir():
+            raise SystemExit(f"no locks directory at {lockdir} (run from the repo root, or pass -d)")
         existing = sorted(lockdir.glob("forge-*.json"))
         if not existing:
             raise SystemExit("no locks found and no version given")
